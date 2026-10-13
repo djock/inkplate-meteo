@@ -1,5 +1,4 @@
 #include "Gui.h"
-#include "Network.h"
 #include "WeatherData.h"
 #include <Arduino.h>
 #include <Inkplate.h>
@@ -13,469 +12,314 @@
 #include "binary_Icons/icon_s_rain.h"
 #include "binary_Icons/icon_s_snow.h"
 #include "binary_Icons/icon_s_storm.h"
-#include "binary_Icons/icon_s_thermometer.h"
-
-// all the battery icons
-#include "binary_Icons/icon_s_full_battery.h"
-#include "binary_Icons/icon_s_half_battery.h"
-#include "binary_Icons/icon_s_high_battery.h"
-#include "binary_Icons/icon_s_low_battery.h"
 
 // font
 #include "fonts/FreeSans12pt7b.h"
 #include "fonts/FreeSans18pt7b.h"
-#include "fonts/FreeSans24pt7b.h"
-#include "fonts/FreeSans9pt7b.h"
-#include "fonts/FreeSans32pt7b.h"
-#include "fonts/FreeSans48pt7b.h"
+#include "fonts/FreeSansBold12pt7b.h"
+#include "fonts/FreeSansBold18pt7b.h"
+#include "fonts/FreeSansBold24pt7b.h"
+#include "fonts/FreeSansBold9pt7b.h"
 #include "fonts/FreeSansBold48pt7b.h"
 
 namespace
 {
+    // Current drawing colors; swapped at night so the whole screen goes dark.
+    uint16_t gInk = BLACK;
+    uint16_t gPaper = WHITE;
+
     const int kScreenWidth = 600;
-    const int kTopBarHeight = 60;
-    const int kSectionGap = 18;
-    const int kCurrentRowHeight = 190;
-    const int kDailyRowHeight = 140;
-    const int kLeftColumnWidth = 300;
-    const int kContentStartY = kTopBarHeight + kSectionGap;
-    const int kDailyRowY = kContentStartY + kCurrentRowHeight + kSectionGap;
-    const int kHourlyRowY = kDailyRowY + kDailyRowHeight + kSectionGap;
+    const int kMargin = 24;
 
-    void drawBitmapScaled(Inkplate &inkplate, int x, int y, const uint8_t *bitmap, int w, int h, int color,
-                          int scaleNumer, int scaleDenom)
+    void drawBitmap(Inkplate &d, int x, int y, const uint8_t *bitmap, int w, int h)
     {
-        int destW = (w * scaleNumer) / scaleDenom;
-        int destH = (h * scaleNumer) / scaleDenom;
         int bytesPerRow = (w + 7) / 8;
-
-        for (int dy = 0; dy < destH; dy++)
+        for (int row = 0; row < h; row++)
         {
-            int srcY = (dy * scaleDenom) / scaleNumer;
-            for (int dx = 0; dx < destW; dx++)
+            for (int col = 0; col < w; col++)
             {
-                int srcX = (dx * scaleDenom) / scaleNumer;
-                int byteIndex = srcY * bytesPerRow + srcX / 8;
-                uint8_t mask = 0x80 >> (srcX & 7);
-                if (pgm_read_byte(&bitmap[byteIndex]) & mask)
+                if (pgm_read_byte(&bitmap[row * bytesPerRow + col / 8]) & (0x80 >> (col & 7)))
                 {
-                    inkplate.drawPixel(x + dx, y + dy, color);
+                    d.drawPixel(x + col, y + row, gInk);
                 }
             }
         }
     }
 
-    int getTextWidth(Inkplate &inkplate, const String &text)
+    // heavy = faux-bold (drawn twice, 1px apart) for the main numbers.
+    void printText(Inkplate &d, int x, int y, const String &text, bool heavy)
     {
-        int16_t x1;
-        int16_t y1;
-        uint16_t w;
-        uint16_t h;
-        inkplate.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
+        d.setTextColor(gInk);
+        d.setCursor(x, y);
+        d.print(text);
+        if (heavy)
+        {
+            d.setCursor(x + 1, y);
+            d.print(text);
+        }
+    }
+
+    void printHeavy(Inkplate &d, int x, int y, const String &text)
+    {
+        printText(d, x, y, text, true);
+    }
+
+    int textWidth(Inkplate &d, const String &text)
+    {
+        int16_t x1, y1;
+        uint16_t w, h;
+        d.getTextBounds(text.c_str(), 0, 0, &x1, &y1, &w, &h);
         return w;
     }
 
-    String truncateTextToWidth(Inkplate &inkplate, const String &text, int maxWidth)
+    void centered(Inkplate &d, const String &text, int columnX, int columnW, int baselineY, bool heavy = true)
     {
-        if (getTextWidth(inkplate, text) <= maxWidth)
-        {
-            return text;
-        }
+        int x = columnX + (columnW - textWidth(d, text)) / 2;
+        x = x < columnX ? columnX : x;
+        printText(d, x, baselineY, text, heavy);
+    }
 
-        String trimmed = text;
-        while (trimmed.length() > 0)
+    void rightAligned(Inkplate &d, const String &text, int rightX, int baselineY)
+    {
+        printHeavy(d, rightX - textWidth(d, text), baselineY, text);
+    }
+
+    String tempText(float value)
+    {
+        int v = (int)roundf(value);
+        return String(v);
+    }
+
+    // Temperature centered in a column with a degree ring after the digits.
+    void centeredTemp(Inkplate &d, float value, int columnX, int columnW, int baselineY, int ringR, int ringDrop)
+    {
+        String text = tempText(value);
+        int total = textWidth(d, text) + 2 * ringR + 4;
+        int x = columnX + (columnW - total) / 2;
+        printHeavy(d, x, baselineY, text);
+        int ringX = x + textWidth(d, text) + ringR + 4;
+        d.drawCircle(ringX, baselineY - ringDrop, ringR, gInk);
+        if (ringR > 4)
         {
-            trimmed.remove(trimmed.length() - 1);
-            String candidate = trimmed + "...";
-            if (getTextWidth(inkplate, candidate) <= maxWidth)
+            d.drawCircle(ringX, baselineY - ringDrop, ringR - 1, gInk);
+        }
+    }
+
+    // Highest precipitation probability among the upcoming hours whose weather matches the class.
+    int chanceFor(const WeatherData &w, bool (*matches)(int))
+    {
+        int best = 0;
+        for (int i = 0; i < WeatherData::kHourlySlots; i++)
+        {
+            if (w.hourlyAvailable[i] && matches(w.hourlyWeatherCodes[i]))
             {
-                return candidate;
+                int p = (int)w.hourlyPrecip[i];
+                if (p > best)
+                {
+                    best = p;
+                }
             }
         }
-
-        return "";
+        return best;
     }
 
-    void drawCenteredText(Inkplate &inkplate, const String &text, int columnX, int columnWidth, int baselineY)
+    bool matchesRain(int code) { return isRainCode(code); }
+    bool matchesSnow(int code) { return isSnowCode(code); }
+    bool matchesStorm(int code) { return isStormCode(code); }
+
+    String dateLine()
     {
-        int textWidth = getTextWidth(inkplate, text);
-        int textX = columnX + (columnWidth - textWidth) / 2;
-        if (textX < columnX)
+        struct tm timeinfo;
+        if (!getLocalTime(&timeinfo, 100))
         {
-            textX = columnX;
+            return "";
         }
-        inkplate.setCursor(textX, baselineY);
-        inkplate.print(text);
+        char buffer[40];
+        strftime(buffer, sizeof(buffer), "%A %d %b", &timeinfo);
+        return String(buffer);
     }
-
-    void drawCenteredTempWithDegree(Inkplate &inkplate, const String &valueText, int columnX, int columnWidth, int baselineY,
-                                    int degreeRadius)
-    {
-        (void)degreeRadius;
-        int textWidth = getTextWidth(inkplate, valueText);
-        int textX = columnX + (columnWidth - textWidth) / 2;
-        if (textX < columnX)
-        {
-            textX = columnX;
-        }
-
-        inkplate.setCursor(textX, baselineY);
-        inkplate.print(valueText);
-    }
-
-    void drawTempWithDegree(Inkplate &inkplate, const String &valueText, int x, int baselineY, int degreeRadius)
-    {
-        (void)degreeRadius;
-        inkplate.setCursor(x, baselineY);
-        inkplate.print(valueText);
-    }
-}
-
-static String getFormattedDateLine()
-{
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-        return "Date N/A";
-    }
-
-    char buffer[40];
-    strftime(buffer, sizeof(buffer), "%A %d %b", &timeinfo);
-    return String(buffer);
 }
 
 Gui::Gui(Inkplate &inkplate) : inkplate(inkplate)
 {
 }
 
-void Gui::drawBackground()
+void Gui::fullRefresh()
+{
+    // One clean cycle (black/white passes) before the image so no ghosting from the previous picture remains.
+    inkplate.burnInClean(1, 0);
+    inkplate.display();
+}
+
+void Gui::drawScene(const WeatherData &weather)
 {
     inkplate.clearDisplay();
-    inkplate.display();
-    inkplate.clearDisplay();
-
-    // Top date bar
-    inkplate.fillRect(0, 0, kScreenWidth, kTopBarHeight, 0);
+    drawBackdrop(inkplate, sceneForWeather(weather.weatherCode), !weather.isDay, 0, 0, kScreenWidth, kScreenWidth);
 }
 
 void Gui::wifiError()
 {
+    gInk = BLACK;
+    gPaper = WHITE;
     inkplate.clearDisplay();
-    inkplate.setTextColor(0);
-    inkplate.setFont(&FreeSans18pt7b);
-    inkplate.setCursor(50, 150);
+    inkplate.setTextColor(gInk);
+    inkplate.setFont(&FreeSansBold18pt7b);
+    inkplate.setCursor(40, 250);
     inkplate.print("WiFi connection failed.");
-    inkplate.setCursor(50, 200);
-    inkplate.print("Check credentials or try again.");
-    inkplate.display();
+    inkplate.setCursor(40, 300);
+    inkplate.print("Check credentials.");
+    fullRefresh();
 }
 
 void Gui::apiError()
 {
+    gInk = BLACK;
+    gPaper = WHITE;
     inkplate.clearDisplay();
-    inkplate.setTextColor(0);
-    inkplate.setFont(&FreeSans18pt7b);
-    inkplate.setCursor(50, 150);
-    inkplate.print("HTTP request failed.");
-    inkplate.setCursor(50, 200);
-    inkplate.print("Check API URL or try again.");
-    inkplate.display();
-}
-
-int Gui::voltageToPercentage(double voltage) {
-    if (voltage >= 4.2) return 100;
-    if (voltage <= 3.0) return 0;
-  
-    // Simple linear approximation
-    return (int)(((voltage - 3.0) / (4.2 - 3.0)) * 100);
+    inkplate.setTextColor(gInk);
+    inkplate.setFont(&FreeSansBold18pt7b);
+    inkplate.setCursor(40, 250);
+    inkplate.print("Weather request failed.");
+    inkplate.setCursor(40, 300);
+    inkplate.print("Will retry on next wake.");
+    fullRefresh();
 }
 
 // Weather Icons based on open-meteo api code
 const uint8_t *Gui::getWeatherIcon(int code)
 {
-    switch (code)
-    {
-    case 0:
+    if (code == 0)
         return icon_s_clear_sky;
-    case 1:
-    case 2:
-    case 3:
+    if (code >= 1 && code <= 3)
         return icon_s_partly_cloudy;
-    case 45:
-    case 48:
+    if (code == 45 || code == 48)
         return icon_s_fog;
-    case 51:
-    case 53:
-    case 55:
-    case 56:
-    case 57:
-    case 61:
-    case 63:
-    case 65:
-    case 66:
-    case 67:
-    case 80:
-    case 81:
-    case 82:
+    if (isRainCode(code))
         return icon_s_rain;
-    case 71:
-    case 73:
-    case 75:
-    case 77:
-    case 85:
-    case 86:
+    if (isSnowCode(code))
         return icon_s_snow;
-    case 95:
-    case 96:
-    case 99:
+    if (isStormCode(code))
         return icon_s_storm;
-    default:
-        return icon_s_gray;
-    }
+    return icon_s_gray;
 }
 
-const uint8_t *Gui::getBatteryIcon(int percentage)
+void Gui::drawBattery(int x, int y, int percent)
 {
-    if (percentage >= 75)
-        return icon_s_full_battery;
-    else if (percentage >= 50)
-        return icon_s_high_battery;
-    else if (percentage >= 25)
-        return icon_s_half_battery;
-    else
-        return icon_s_low_battery;
+    inkplate.drawRect(x, y, 30, 14, gInk);
+    inkplate.fillRect(x + 30, y + 4, 3, 6, gInk);
+    int fill = (26 * constrain(percent, 0, 100)) / 100;
+    inkplate.fillRect(x + 2, y + 2, fill, 10, gInk);
 }
 
-// --- Draw Temperature & Precipitation Graph ---
-void Gui::drawTemperaturePrecipGraph(WeatherData *weatherData, Network::UserInfo *userInfo)
+void Gui::drawDashboard(const WeatherData &weather, const Status &status)
 {
-    // Layout values for graph placement
-    int graphX = 60;
-    int graphY = 185;
-    int graphWidth = 500;
-    int graphHeight = 250;
+    // The info is always black on white; only the picture panel goes dark at night.
+    gInk = BLACK;
+    gPaper = WHITE;
 
-    inkplate.setCursor(10, 185);
-    inkplate.setFont(&FreeSans12pt7b);
-    inkplate.setTextColor(0);
-    inkplate.print("Hourly temperature and precipitation");
+    inkplate.clearDisplay();
+    inkplate.setTextColor(gInk);
+    inkplate.setTextSize(1);
+    inkplate.setTextWrap(false);
 
-    int marginX = 20;
-    int marginY = 20;
-    int chartLeft = graphX + marginX;
-    int chartBottom = graphY + graphHeight - marginY;
-    int chartTop = graphY + marginY;
-    float actualTempMin = 100, actualTempMax = -100;
-    float precipMax = 100;
+    // --- Top bar: date left, battery + update time right ---
+    inkplate.setFont(&FreeSansBold18pt7b);
+    printHeavy(inkplate, kMargin, 34, dateLine());
 
-    // Find actual min/max for temperature and precipitation
-    for (int i = 0; i < 6; i++)
+    int rightX = kScreenWidth - kMargin;
+    rightAligned(inkplate, String(weather.updatedTime), rightX, 34);
+    int timeW = textWidth(inkplate, String(weather.updatedTime));
+    int cursorX = rightX - timeW - 14;
+    if (status.stale)
     {
-        if (weatherData->hourlyTemps[i] < actualTempMin)
-            actualTempMin = weatherData->hourlyTemps[i];
-        if (weatherData->hourlyTemps[i] > actualTempMax)
-            actualTempMax = weatherData->hourlyTemps[i];
+        inkplate.fillCircle(cursorX, 25, 4, gInk); // dot = data could not be refreshed this time
+        cursorX -= 16;
     }
-
-    // Add padding but ensure min temperature doesn't go below zero (or another reasonable value)
-    float paddedTempMin = actualTempMin - 2;
-    float paddedTempMax = actualTempMax + 2;
-
-    // Calculate the mid temperature as the average of min and max
-    float paddedTempMid = (paddedTempMin + paddedTempMax) / 2;
-
-    float tempRange = paddedTempMax - paddedTempMin;
-    if (tempRange == 0)
-        tempRange = 1; // Avoid division by zero
-    float xStep = (graphWidth - 2 * marginX) / 5.0;
-
-    // Draw axes
-    inkplate.drawLine(chartLeft, chartTop, chartLeft, chartBottom, 0);                   // Y-axis
-    inkplate.drawLine(chartLeft, chartBottom, graphX + graphWidth + 20, chartBottom, 0); // X-axis
-
-    // Calculate Y positions for min, mid, and max temperatures
-    int yMin = chartBottom - ((paddedTempMin - paddedTempMin) / tempRange) * (graphHeight - 2 * marginY);
-    int yMax = chartBottom - ((paddedTempMax - paddedTempMin) / tempRange) * (graphHeight - 2 * marginY);
-    int yMid = chartBottom - ((paddedTempMid - paddedTempMin) / tempRange) * (graphHeight - 2 * marginY);
-
-    // Ensure at least 20px gap between the min, mid, and max temperature labels
-    if (abs(yMax - yMin) < 20)
+    if (!status.usbPowered && status.batteryPercent >= 0) // battery level only matters when running on battery
     {
-        int offset = 20 - abs(yMax - yMin); // Calculate the gap required
-        yMax = yMin + offset;               // Adjust the max label position to create the gap
+        drawBattery(cursorX - 33, 19, status.batteryPercent);
     }
+    inkplate.fillRect(kMargin, 46, kScreenWidth - 2 * kMargin, 2, gInk);
 
-    if (abs(yMid - yMin) < 20)
-    {
-        int offset = 20 - abs(yMid - yMin); // Calculate the gap required
-        yMid = yMin + offset;               // Adjust the mid label position to create the gap
-    }
-
-    if (abs(yMax - yMid) < 20)
-    {
-        int offset = 20 - abs(yMax - yMid); // Calculate the gap required
-        yMax = yMid + offset;               // Adjust the max label position to create the gap
-    }
-
-    // Draw the temperature labels (Min, Mid, and Max)
-    inkplate.setFont(&FreeSans9pt7b);
-    inkplate.setTextColor(0);
-
-    // Draw Min temperature label
-    drawTempWithDegree(inkplate, String(paddedTempMin, 1), chartLeft - 70, yMin - 20, 3);
-
-    // Draw Mid temperature label
-    drawTempWithDegree(inkplate, String(paddedTempMid, 1), chartLeft - 70, yMid, 3);
-
-    // Draw Max temperature label
-    drawTempWithDegree(inkplate, String(paddedTempMax, 1), chartLeft - 70, yMax + 20, 3);
-
-    // Draw precipitation bars
-    for (int i = 0; i < 6; i++)
-    {
-        int x = chartLeft + i * xStep;
-        int barHeight = (precipMax > 0) ? (weatherData->hourlyPrecip[i] / precipMax) * (graphHeight - 2 * marginY) : 0;
-        int y = chartBottom - barHeight;
-
-        // Draw the precipitation bar
-        inkplate.fillRect(x + 5, y + 10, 10, barHeight - 10, 4);
-
-        // Draw precipitation value on top of the bar
-        inkplate.setCursor(x + 5, y - 5);
-        inkplate.print(weatherData->hourlyPrecip[i], 0); // Show precipitation with 1 decimal place
-        inkplate.print("%");
-    }
-
-    // Draw temperature line
-    for (int i = 0; i < 5; i++)
-    {
-        int x1 = chartLeft + i * xStep;
-        int x2 = chartLeft + (i + 1) * xStep;
-
-        int y1 =
-            chartBottom - ((weatherData->hourlyTemps[i] - paddedTempMin) / tempRange) * (graphHeight - 2 * marginY);
-        int y2 =
-            chartBottom - ((weatherData->hourlyTemps[i + 1] - paddedTempMin) / tempRange) * (graphHeight - 2 * marginY);
-
-        inkplate.drawLine(x1, y1, x2, y2, 0);
-    }
-
-    // Time labels under X-axis
-    inkplate.setTextColor(0);
-    for (int i = 0; i < 6; i++)
-    {
-        int x = chartLeft + i * xStep;
-        inkplate.setCursor(x + 3, chartBottom + 20);
-        inkplate.print(weatherData->hourlyTimes[i]);
-    }
-}
-
-// --- Display All Weather Data ---
-void Gui::displayWeatherData(WeatherData *weatherData, Network::UserInfo *userInfo)
-{
-    // Top date bar
-    inkplate.setTextColor(7);
-    inkplate.setFont(&FreeSans24pt7b);
-    String dateLine = getFormattedDateLine();
-    int16_t x1;
-    int16_t y1;
-    uint16_t w;
-    uint16_t h;
-    inkplate.getTextBounds(dateLine.c_str(), 0, 0, &x1, &y1, &w, &h);
-    int dateX = (kScreenWidth - w) / 2;
-    if (dateX < 12)
-    {
-        dateX = 12;
-    }
-    int dateY = (kTopBarHeight / 2) - (y1 + (h / 2)) + 6;
-    inkplate.setCursor(dateX, dateY);
-    inkplate.print(dateLine);
-
-    inkplate.setTextColor(0);
-
-    // Row 1: current temp (left) + icon/description (right)
-    int currentRowY = kContentStartY;
-    int rightColumnX = kLeftColumnWidth + 20;
-    int iconSize = 96;
-    int iconX = rightColumnX + 40;
-    int iconY = currentRowY + 20;
-
-    inkplate.setFont(&FreeSans32pt7b);
+    // --- Hero: big temperature, condition, feels-like / wind, and chances if any ---
+    inkplate.setFont(&FreeSansBold48pt7b);
     inkplate.setTextSize(2);
-    String currentTempText = String(weatherData->currentTemp, 0);
-    int currentTempColumnX = 0;
-    int currentTempColumnWidth = kLeftColumnWidth;
-    int currentTempBaselineY = currentRowY + 140;
-    drawCenteredTempWithDegree(inkplate, currentTempText, currentTempColumnX, currentTempColumnWidth,
-                               currentTempBaselineY, 8);
+    String temp = tempText(weather.currentTemp);
+    if (textWidth(inkplate, temp) > 250)
+    {
+        inkplate.setTextSize(1);
+    }
+    int tempBase = 190;
+    printHeavy(inkplate, kMargin, tempBase, temp);
+    int ringX = kMargin + textWidth(inkplate, temp) + 22;
+    inkplate.drawCircle(ringX, tempBase - 118, 13, gInk);
+    inkplate.drawCircle(ringX, tempBase - 118, 12, gInk);
+    inkplate.drawCircle(ringX, tempBase - 118, 11, gInk);
     inkplate.setTextSize(1);
 
-    drawBitmapScaled(inkplate, iconX, iconY, getWeatherIcon(weatherData->weatherCode), 48, 48, 0, 2, 1);
-
+    // Secondary hero text: smaller, regular weight
     inkplate.setFont(&FreeSans18pt7b);
-    inkplate.setTextWrap(false);
-    int rightColumnWidth = kScreenWidth - rightColumnX;
-    String descText = truncateTextToWidth(inkplate, weatherData->weatherDescription, rightColumnWidth - 10);
-    int descWidth = getTextWidth(inkplate, descText);
-    int descX = rightColumnX + (rightColumnWidth - descWidth) / 2;
-    if (descX < rightColumnX)
+    printText(inkplate, kMargin, 232, weather.weatherDescription, false);
+
+    inkplate.setFont(&FreeSans12pt7b);
+    printText(inkplate, kMargin, 264, "Feels " + tempText(weather.feelsLike), false);
+    printText(inkplate, kMargin, 288, "Wind " + String((int)roundf(weather.windSpeed)) + (weather.metric ? " km/h" : " mph"), false);
+
+    // Rain / snow / storm chances over the next hours: only the ones that exist, one line, no row of their own.
+    int chances[3] = {chanceFor(weather, matchesRain), chanceFor(weather, matchesSnow), chanceFor(weather, matchesStorm)};
+    const char *labels[3] = {"Rain ", "Snow ", "Storm "};
+    String chanceLine = "";
+    for (int i = 0; i < 3; i++)
     {
-        descX = rightColumnX;
+        if (chances[i] > 0)
+        {
+            chanceLine += (chanceLine.length() ? "   " : "") + String(labels[i]) + String(chances[i]) + "%";
+        }
     }
-    inkplate.setCursor(descX, iconY + iconSize + 28);
-    inkplate.print(descText);
-    inkplate.setTextWrap(true);
-
-    // Bottom row: next 5 days (letter + temp)
-    int dayColumnWidth = 110;
-    int daysStartX = (kScreenWidth - (dayColumnWidth * 5)) / 2;
-    int dayLabelY = kHourlyRowY + 40;
-    int dayTempY = kHourlyRowY + 95;
-
-    inkplate.setFont(&FreeSans18pt7b);
-    for (int i = 0; i < 5; i++)
+    int heroBottom = 304;
+    if (chanceLine.length())
     {
-        int dayIndex = i + 1;
-        int xPos = daysStartX + i * dayColumnWidth;
-        String dayName = weatherData->dailyNames[dayIndex];
-        String dayLetter = dayName.length() > 0 ? dayName.substring(0, 1) : "-";
+        inkplate.setFont(&FreeSans12pt7b);
+        printText(inkplate, kMargin, 318, chanceLine, false);
+        heroBottom = 330;
+    }
+    inkplate.fillRect(kMargin, heroBottom, kScreenWidth - 2 * kMargin, 2, gInk);
 
-        drawCenteredText(inkplate, dayLetter, xPos, dayColumnWidth, dayLabelY);
+    // --- Hourly strip ---
+    int hourW = (kScreenWidth - 2 * kMargin) / WeatherData::kHourlySlots;
+    int hy = heroBottom; // top of the hourly section
+    for (int i = 0; i < WeatherData::kHourlySlots; i++)
+    {
+        int colX = kMargin + i * hourW;
+        if (!weather.hourlyAvailable[i])
+        {
+            continue;
+        }
+        inkplate.setFont(&FreeSans12pt7b); // secondary text: small, regular weight
+        centered(inkplate, i == 0 ? String("Now") : String(weather.hourlyTimes[i]), colX, hourW, hy + 26, false);
+        inkplate.fillRect(colX + (hourW - 48) / 2 - 2, hy + 32, 52, 52, gPaper); // keep the icon clean over the backdrop
+        drawBitmap(inkplate, colX + (hourW - 48) / 2, hy + 34, getWeatherIcon(weather.hourlyWeatherCodes[i]), 48, 48);
+        inkplate.setFont(&FreeSansBold18pt7b);
+        centeredTemp(inkplate, weather.hourlyTemps[i], colX, hourW, hy + 112, 4, 18);
+        if (weather.hourlyPrecip[i] >= 10)
+        {
+            inkplate.setFont(&FreeSans12pt7b);
+            centered(inkplate, String((int)weather.hourlyPrecip[i]) + "%", colX, hourW, hy + 134, false);
+        }
+    }
+    int dayTop = hy + 146;
+    inkplate.fillRect(kMargin, dayTop, kScreenWidth - 2 * kMargin, 2, gInk);
 
-        inkplate.setFont(&FreeSans24pt7b);
-        String dayTempText = String(weatherData->dailyMaxTemp[dayIndex], 0);
-        drawCenteredTempWithDegree(inkplate, dayTempText, xPos, dayColumnWidth, dayTempY, 5);
+    // --- 7-day forecast: day, high, low ---
+    int dayW = (kScreenWidth - 2 * kMargin) / 7;
+    for (int i = 0; i < 7; i++)
+    {
+        int colX = kMargin + i * dayW;
+        inkplate.setFont(&FreeSans12pt7b);
+        centered(inkplate, String(weather.dailyNames[i]), colX, dayW, dayTop + 26, false);
+        inkplate.setFont(&FreeSansBold18pt7b);
+        centered(inkplate, tempText(weather.dailyMaxTemp[i]), colX, dayW, dayTop + 56);
         inkplate.setFont(&FreeSans18pt7b);
+        centered(inkplate, tempText(weather.dailyMinTemp[i]), colX, dayW, dayTop + 84, false);
     }
-
-    // Top row: next 5 hours (time + temp)
-    int hourColumnWidth = 110;
-    int hoursStartX = (kScreenWidth - (hourColumnWidth * 5)) / 2;
-    int hourLabelY = kDailyRowY + 40;
-    int hourTempY = kDailyRowY + 95;
-
-    for (int i = 0; i < 5; i++)
-    {
-        int xPos = hoursStartX + i * hourColumnWidth;
-        if (weatherData->hourlyAvailable[i])
-        {
-            String timeText = weatherData->hourlyTimes[i];
-            inkplate.setFont(&FreeSans18pt7b);
-            drawCenteredText(inkplate, timeText, xPos, hourColumnWidth, hourLabelY);
-
-            inkplate.setFont(&FreeSans24pt7b);
-            String hourlyTempText = String(weatherData->hourlyTemps[i], 0);
-            drawCenteredTempWithDegree(inkplate, hourlyTempText, xPos, hourColumnWidth, hourTempY, 5);
-        }
-        else
-        {
-            inkplate.setFont(&FreeSans18pt7b);
-            drawCenteredText(inkplate, "--", xPos, hourColumnWidth, hourLabelY);
-
-            inkplate.setFont(&FreeSans24pt7b);
-            drawCenteredText(inkplate, "--", xPos, hourColumnWidth, hourTempY);
-        }
-    }
-
-    inkplate.display();
 }
