@@ -36,7 +36,7 @@ const char *ntpServer = "pool.ntp.org";
 
 // --- Schedule ---
 const uint32_t refreshSeconds = 30 * 60;
-const uint32_t sceneSeconds = 20;     // how long the picture stays after a button press
+const uint32_t sceneSeconds = 30;     // how long the picture stays on each wake
 const uint32_t retrySeconds = 5 * 60; // after a failed fetch
 
 // Side (wake) button of the Inkplate 4 TEMPERA: GPIO 36, active low.
