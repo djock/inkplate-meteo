@@ -98,102 +98,97 @@ String Network::getDayName(int dayIndex) {
   return daysOfWeek[dayOfWeekIndex];
 }
 
+// Copy a String into a fixed char buffer (always NUL terminated).
+static void copyTo(char *dst, size_t size, const String &src)
+{
+    strlcpy(dst, src.c_str(), size);
+}
+
 // Function to fetch weather data from Open-Meteo API
 void Network::fetchWeatherData(WeatherData* weatherData, UserInfo* userInfo, const float* latitude, const float* longitude) {
-    // Construct URL for the Open-Meteo API request
-    String units = "&temperature_unit=fahrenheit";
-
-    String urlMetric = "https://api.open-meteo.com/v1/forecast?latitude=" + String(*latitude) + "&longitude=" + String(*longitude) +
+    String url = "https://api.open-meteo.com/v1/forecast?latitude=" + String(*latitude, 4) + "&longitude=" + String(*longitude, 4) +
                  "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,wind_speed_10m_max,wind_direction_10m_dominant,precipitation_probability_max,weather_code,uv_index_max" +
                  "&hourly=temperature_2m,precipitation_probability,weather_code" +
                  "&current=temperature_2m,precipitation,wind_speed_10m,weather_code,apparent_temperature,relative_humidity_2m,is_day" +
-                 "&timezone=auto";
-    
-    String urlImperial = "https://api.open-meteo.com/v1/forecast?latitude=" + String(*latitude) + "&longitude=" + String(*longitude) +
-                 "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,wind_speed_10m_max,wind_direction_10m_dominant,precipitation_probability_max,weather_code,uv_index_max" +
-                 "&hourly=temperature_2m,precipitation_probability,weather_code" +
-                 "&current=temperature_2m,precipitation,wind_speed_10m,weather_code,apparent_temperature,relative_humidity_2m,is_day" +
-                 "&timezone=auto" +
-                 "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch";  // standard api settings use C, km/h, milimeter
-    
-    HTTPClient http;
+                 "&timezone=auto&forecast_days=7";
 
-    if (userInfo->useMetric == true){
+    if (userInfo->useMetric) {
       userInfo->temperatureLabel = " C";
       userInfo->speedLabel = " km/h";
-      http.begin(urlMetric);
     }
-    else{
+    else {
       userInfo->temperatureLabel = " F";
       userInfo->speedLabel = " mph";
-      http.begin(urlImperial);
+      url += "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch";
     }
-        
-    int httpCode = http.GET();  // Send the GET request
-    
-    if (httpCode > 0) {  // Check if the request was successful
-        String payload = http.getString();  // Get the response as a string
-        Serial.println(payload);  // Print the full response for debugging
 
-        userInfo->apiError = false;
+    HTTPClient http;
+    http.begin(url);
+    http.setTimeout(15000);
+    int httpCode = http.GET();
 
-        // Parse the JSON response
-        DynamicJsonDocument doc(2048);  // Create a JSON document with a buffer size of 2048 bytes
-        deserializeJson(doc, payload);  // Deserialize the JSON payload
+    if (httpCode != HTTP_CODE_OK) {
+        Serial.printf("Weather request failed: %d\n", httpCode);
+        userInfo->apiError = true;
+        http.end();
+        return;
+    }
 
-        // UserInfo Data
-        userInfo->lastUpdated = getFormattedTime();
-        userInfo->currentHour = getCurrentHour();
-        userInfo->lastUpdatedDate = extractDate(userInfo->lastUpdated);
-        userInfo->lastUpdatedTime = extractTime(userInfo->lastUpdated);
+    String payload = http.getString();
+    http.end();
 
-        // Store the parsed data into the WeatherData structure
-        weatherData->currentTemp = doc["current"]["temperature_2m"].as<float>();   
-        weatherData->feelsLike = doc["current"]["apparent_temperature"].as<float>();  
-        weatherData->sunrise = extractSun(doc["daily"]["sunrise"][0].as<String>());
-        weatherData->sunset = extractSun(doc["daily"]["sunset"][0].as<String>());
-        weatherData->uvIndex = doc["daily"]["uv_index_max"][0].as<float>();   
-        weatherData->precipitation = doc["current"]["precipitation"].as<float>();  
-        weatherData->windSpeed = doc["current"]["wind_speed_10m"].as<float>();
-        weatherData->isDay = doc["current"]["is_day"].as<bool>();
-        weatherData->weatherCode = doc["current"]["weather_code"].as<int>(); 
-        weatherData->weatherDescription = getWeatherDescription(weatherData->weatherCode);
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, payload);
+    if (err) {
+        Serial.printf("Weather JSON error: %s\n", err.c_str());
+        userInfo->apiError = true;
+        return;
+    }
+    userInfo->apiError = false;
 
-        // Fetch daily forecast for the next 7 days
-        for (int i = 0; i < 7; i++) {
-          weatherData->dailyMinTemp[i] = doc["daily"]["temperature_2m_min"][i].as<float>();  
-          weatherData->dailyMaxTemp[i] = doc["daily"]["temperature_2m_max"][i].as<float>();
-          weatherData->dailyWeatherCodes[i] = doc["daily"]["weather_code"][i].as<int>();  
-          weatherData->dailyNames[i] = getDayName(i);  // Get day name dynamically
-        }
+    userInfo->lastUpdated = getFormattedTime();
+    userInfo->currentHour = getCurrentHour();
+    userInfo->lastUpdatedDate = extractDate(userInfo->lastUpdated);
+    userInfo->lastUpdatedTime = extractTime(userInfo->lastUpdated);
 
-        
-        // Fetch data for the next 6 hours
-        const int hourlySlots = 6;
-        int hourlyCount = doc["hourly"]["time"].size();
+    weatherData->valid = true;
+    weatherData->metric = userInfo->useMetric;
+    weatherData->currentTemp = doc["current"]["temperature_2m"].as<float>();
+    weatherData->feelsLike = doc["current"]["apparent_temperature"].as<float>();
+    copyTo(weatherData->sunrise, sizeof(weatherData->sunrise), extractSun(doc["daily"]["sunrise"][0].as<String>()));
+    copyTo(weatherData->sunset, sizeof(weatherData->sunset), extractSun(doc["daily"]["sunset"][0].as<String>()));
+    weatherData->uvIndex = doc["daily"]["uv_index_max"][0].as<float>();
+    weatherData->precipitation = doc["current"]["precipitation"].as<float>();
+    weatherData->windSpeed = doc["current"]["wind_speed_10m"].as<float>();
+    weatherData->isDay = doc["current"]["is_day"].as<bool>();
+    weatherData->weatherCode = doc["current"]["weather_code"].as<int>();
+    copyTo(weatherData->weatherDescription, sizeof(weatherData->weatherDescription), getWeatherDescription(weatherData->weatherCode));
+    copyTo(weatherData->updatedTime, sizeof(weatherData->updatedTime), userInfo->lastUpdatedTime);
 
-        for (int i = 0; i < hourlySlots; i++) {
-          int sourceIndex = userInfo->currentHour + i;
-          bool hasData = (userInfo->currentHour >= 0) && (sourceIndex >= 0) && (sourceIndex < hourlyCount);
+    for (int i = 0; i < 7; i++) {
+        weatherData->dailyMinTemp[i] = doc["daily"]["temperature_2m_min"][i].as<float>();
+        weatherData->dailyMaxTemp[i] = doc["daily"]["temperature_2m_max"][i].as<float>();
+        weatherData->dailyWeatherCodes[i] = doc["daily"]["weather_code"][i].as<int>();
+        copyTo(weatherData->dailyNames[i], sizeof(weatherData->dailyNames[i]), getDayName(i));
+    }
 
-          weatherData->hourlyAvailable[i] = hasData;
-          if (hasData) {
+    // Next hourly slots, starting at the current local hour
+    int hourlyCount = doc["hourly"]["time"].size();
+    for (int i = 0; i < WeatherData::kHourlySlots; i++) {
+        int sourceIndex = userInfo->currentHour + i;
+        bool hasData = (userInfo->currentHour >= 0) && (sourceIndex < hourlyCount);
+
+        weatherData->hourlyAvailable[i] = hasData;
+        if (hasData) {
             weatherData->hourlyTemps[i] = doc["hourly"]["temperature_2m"][sourceIndex].as<float>();
             weatherData->hourlyPrecip[i] = doc["hourly"]["precipitation_probability"][sourceIndex].as<float>();
-            weatherData->hourlyTimes[i] = extractSun(doc["hourly"]["time"][sourceIndex].as<String>());
+            copyTo(weatherData->hourlyTimes[i], sizeof(weatherData->hourlyTimes[i]), extractSun(doc["hourly"]["time"][sourceIndex].as<String>()));
             weatherData->hourlyWeatherCodes[i] = doc["hourly"]["weather_code"][sourceIndex].as<int>();
-          } else {
+        } else {
             weatherData->hourlyTemps[i] = 0.0f;
             weatherData->hourlyPrecip[i] = 0.0f;
-            weatherData->hourlyTimes[i] = "";
+            weatherData->hourlyTimes[i][0] = '\0';
             weatherData->hourlyWeatherCodes[i] = 0;
-          }
         }
-
-    } else {
-        Serial.println("Error on HTTP request");
-        userInfo->apiError = true;
     }
-
-    http.end();  // End the HTTP request
 }
