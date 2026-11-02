@@ -67,6 +67,10 @@ namespace
         d.fillCircle(x + 2 * s + s / 2, y - s - s / 2, s + s / 3, ink);
         d.fillCircle(x + 4 * s, y - s, s, ink);
         d.fillRect(x + s, y - 2 * s, 3 * s, 2 * s, ink);
+        if (t <= 0)
+        {
+            return; // solid cloud
+        }
         d.fillCircle(x + s, y - s, s - t, paper);
         d.fillCircle(x + 2 * s + s / 2, y - s - s / 2, s + s / 3 - t, paper);
         d.fillCircle(x + 4 * s, y - s, s - t, paper);
@@ -154,7 +158,7 @@ void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, 
     float k = iw / 244.0f;
     auto X = [&](float v) { return ix + (int)(v * k); };
     auto Y = [&](int pct) { return iy + ih * pct / 100; };
-    int t = 4 * k / 2 + 5; // cloud outline width
+    int t = 0; // cloud outline width; 0 = solid cloud
     int cloudTop = Y(40);
 
     switch (kind)
