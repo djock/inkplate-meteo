@@ -22,7 +22,7 @@ public:
     // Draw the whole dashboard (backdrop + text) into the frame buffer. Does not refresh the panel.
     // Always black on white.
     void drawDashboard(const WeatherData &weather, const Status &status);
-    // Draw the full-screen picture of the outside (dark at night, light by day).
+    // Draw the full-screen picture of the outside (dark drawing on white).
     void drawScene(const WeatherData &weather);
     // One full panel refresh with a clean pass first so no ghosting remains.
     void fullRefresh();

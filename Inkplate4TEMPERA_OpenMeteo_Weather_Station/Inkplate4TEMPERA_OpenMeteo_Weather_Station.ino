@@ -2,10 +2,10 @@
   Inkplate 4 TEMPERA weather station (Open-Meteo)
 
   Every 30 minutes the board wakes, fetches fresh weather and draws a picture of what it looks like
-  outside. Then it goes back to deep sleep. The weather screen is always black on white.
+  outside. Then it goes back to deep sleep. Everything is dark on white; there is no dark mode.
 
   The side (wake) button refreshes right away and shows the full-screen picture of the outside
-  (sun, moon and stars, clouds, rain, snow, storm; dark at night) for a few seconds, then the weather.
+  (sun, moon and stars, clouds, rain, snow, storm) for a few seconds, then the weather.
   If a fetch fails, the last good data is kept and shown with a dot next to the time, and the board
   retries after a few minutes.
 

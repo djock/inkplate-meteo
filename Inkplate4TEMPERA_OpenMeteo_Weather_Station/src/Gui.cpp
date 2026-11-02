@@ -24,7 +24,7 @@
 
 namespace
 {
-    // Current drawing colors; swapped at night so the whole screen goes dark.
+    // Drawing colors: always dark ink on white paper.
     uint16_t gInk = BLACK;
     uint16_t gPaper = WHITE;
 
@@ -213,7 +213,7 @@ void Gui::drawBattery(int x, int y, int percent)
 
 void Gui::drawDashboard(const WeatherData &weather, const Status &status)
 {
-    // The info is always black on white; only the picture panel goes dark at night.
+    // Always black on white.
     gInk = BLACK;
     gPaper = WHITE;
 

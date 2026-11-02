@@ -143,10 +143,10 @@ SceneKind sceneForWeather(int code)
 
 void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, int h)
 {
-    // Full-screen picture: black with white drawing at night, white with dark drawing by day.
+    // Full-screen picture: always dark drawing on a white background (night only swaps the sun for moon and stars).
     // The drawing stays inside an inset (the panel bezel hides the edges).
-    uint16_t ink = night ? WHITE : BLACK;
-    uint16_t paper = night ? BLACK : WHITE;
+    uint16_t ink = BLACK;
+    uint16_t paper = WHITE;
     d.fillRect(x, y, w, h, paper);
 
     const int inset = 28;

@@ -17,9 +17,8 @@ enum class SceneKind
 // Pick the backdrop for an Open-Meteo weather code.
 SceneKind sceneForWeather(int weatherCode);
 
-// Draw the static "what it looks like outside" picture as a framed panel in (x, y, w, h).
-// By day it is a white panel with dark drawing; at night it is a black panel with white drawing
-// (moon, stars, white drops). Deterministic, so the picture is stable between wakes.
+// Draw the static "what it looks like outside" picture in (x, y, w, h): dark drawing on white, always.
+// At night the sun becomes a moon with stars. Deterministic, so the picture is stable between wakes.
 void drawBackdrop(Inkplate &display, SceneKind kind, bool night, int x, int y, int w, int h);
 
 #endif
