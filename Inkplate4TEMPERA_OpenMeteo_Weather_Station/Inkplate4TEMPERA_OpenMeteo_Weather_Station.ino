@@ -217,7 +217,7 @@ void setup()
         delay(sceneSeconds * 1000UL);
     }
     gui.drawDashboard(cachedWeather, status);
-    gui.fullRefresh();
+    gui.fullRefresh(5); // extra clean passes so the picture does not ghost into the weather screen
 
     goToSleep(lastFetchFailed ? retrySeconds : refreshSeconds);
 }

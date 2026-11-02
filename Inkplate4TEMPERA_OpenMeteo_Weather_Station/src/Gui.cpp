@@ -144,10 +144,10 @@ Gui::Gui(Inkplate &inkplate) : inkplate(inkplate)
 {
 }
 
-void Gui::fullRefresh()
+void Gui::fullRefresh(int cleanCycles)
 {
-    // Two clean cycles (black/white passes) before the image so no ghosting from the previous picture remains.
-    inkplate.burnInClean(2, 0);
+    // Clean cycles (black/white passes) before the image so no ghosting from the previous picture remains.
+    inkplate.burnInClean(cleanCycles, 0);
     inkplate.display();
 }
 

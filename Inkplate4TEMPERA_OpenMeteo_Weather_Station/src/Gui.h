@@ -25,7 +25,7 @@ public:
     // Draw the full-screen picture of the outside (dark drawing on white).
     void drawScene(const WeatherData &weather);
     // One full panel refresh with a clean pass first so no ghosting remains.
-    void fullRefresh();
+    void fullRefresh(int cleanCycles = 2);
 
     void wifiError();
     void apiError();

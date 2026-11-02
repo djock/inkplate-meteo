@@ -80,6 +80,10 @@ namespace
     void drawRainDrops(Inkplate &d, int count, float k, uint16_t ink, int ax, int ay, int aw, int ah)
     {
         int len = 15 * k, w = 3 + (int)k;
+        if (len < 20)
+        {
+            len = 20; // keep drops readable in a small picture
+        }
         for (int i = 0; i < count; i++)
         {
             int dx = ax + 10 + hashOf(i, 1) % (aw - 20);
@@ -157,7 +161,7 @@ void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, 
     int ix = x + inset, iy = y + inset, iw = w - 2 * inset, ih = h - 2 * inset - 10;
     float k = iw / 244.0f;
     float dens = iw / 544.0f; // fewer drops and stars in a small picture
-    auto N = [&](int n) { int v = (int)(n * dens); return v < 6 ? 6 : v; };
+    auto N = [&](int n, int minV) { int v = (int)(n * dens); return v < minV ? minV : v; };
     auto X = [&](float v) { return ix + (int)(v * k); };
     auto Y = [&](int pct) { return iy + ih * pct / 100; };
     int t = 0; // cloud outline width; 0 = solid cloud
@@ -168,7 +172,7 @@ void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, 
     case SceneKind::Clear:
         if (night)
         {
-            drawStars(d, N(24), k * 0.8f, ink, ix, iy, iw, ih);
+            drawStars(d, N(24, 8), k * 0.8f, ink, ix, iy, iw, ih);
         }
         drawCelestial(d, night, ix + iw * 55 / 100, iy + ih * 45 / 100, 50 * k, k, ink, paper);
         break;
@@ -176,7 +180,7 @@ void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, 
     case SceneKind::PartlyCloudy:
         if (night)
         {
-            drawStars(d, N(16), k * 0.8f, ink, ix, iy, iw, ih);
+            drawStars(d, N(16, 8), k * 0.8f, ink, ix, iy, iw, ih);
         }
         drawCelestial(d, night, ix + iw * 62 / 100, iy + ih * 34 / 100, 40 * k, k, ink, paper);
         drawCloud(d, X(0), Y(82), 28 * k, t, ink, paper);
@@ -200,19 +204,19 @@ void drawBackdrop(Inkplate &d, SceneKind kind, bool night, int x, int y, int w, 
         break;
 
     case SceneKind::Rain:
-        drawRainDrops(d, N(40), k, ink, ix, iy, iw, ih);
+        drawRainDrops(d, N(40, 16), k, ink, ix, iy, iw, ih);
         drawCloud(d, X(74), cloudTop, 30 * k, t, ink, paper);
         drawCloud(d, X(0), cloudTop + 44 * k, 20 * k, t, ink, paper);
         break;
 
     case SceneKind::Snow:
-        drawSnowFlakes(d, N(28), k, ink, ix, iy, iw, ih);
+        drawSnowFlakes(d, N(28, 12), k, ink, ix, iy, iw, ih);
         drawCloud(d, X(74), cloudTop, 30 * k, t, ink, paper);
         drawCloud(d, X(0), cloudTop + 44 * k, 20 * k, t, ink, paper);
         break;
 
     case SceneKind::Storm:
-        drawRainDrops(d, N(32), k, ink, ix, iy, iw, ih);
+        drawRainDrops(d, N(32, 14), k, ink, ix, iy, iw, ih);
         drawCloud(d, X(74), cloudTop, 30 * k, t, ink, paper);
         drawBolt(d, X(124), cloudTop + 8 * k, 5 * k, ink);
         break;
