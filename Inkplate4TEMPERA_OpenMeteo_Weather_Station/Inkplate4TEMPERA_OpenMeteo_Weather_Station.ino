@@ -4,8 +4,8 @@
   Every 30 minutes the board wakes, fetches fresh weather and draws a picture of what it looks like
   outside. Then it goes back to deep sleep. Everything is dark on white; there is no dark mode.
 
-  The side (wake) button refreshes right away and shows the full-screen picture of the outside
-  (sun, moon and stars, clouds, rain, snow, storm) for a few seconds, then the weather.
+  Each refresh first shows the full-screen picture of the outside (sun, moon and stars, clouds,
+  rain, snow, storm) for a few seconds, then the weather. The side (wake) button refreshes right away.
   If a fetch fails, the last good data is kept and shown with a dot next to the time, and the board
   retries after a few minutes.
 
@@ -57,6 +57,7 @@ Gui gui(inkplate);
 RTC_DATA_ATTR WeatherData cachedWeather;
 RTC_DATA_ATTR bool lastFetchFailed = false;
 RTC_DATA_ATTR int lastBatteryPercent = -1;
+RTC_DATA_ATTR int gaugeSkipWakes = 0; // when the gauge failed, skip it for a while: a failing gauge stalls boot for ~45 s
 RTC_DATA_ATTR bool lastPowerUsb = true; // last reliable power reading; used when the fuel gauge is not ready
 
 #define uS_TO_S_FACTOR 1000000ULL
@@ -71,9 +72,16 @@ PowerState readPowerState()
 {
     PowerState state = {lastPowerUsb, -1};
 
+    if (gaugeSkipWakes > 0)
+    {
+        gaugeSkipWakes--;
+        return state;
+    }
+
     inkplate.wakePeripheral(INKPLATE_FUEL_GAUGE);
     if (!inkplate.battery.begin())
     {
+        gaugeSkipWakes = 16;
         return state;
     }
 
@@ -92,6 +100,10 @@ PowerState readPowerState()
     }
     Serial.printf("Fuel gauge: %d mV, %d%%, %d mA (%s)\n", mv, soc, current, valid ? "ready" : "not ready");
 
+    if (!valid)
+    {
+        gaugeSkipWakes = 16; // about 8 hours
+    }
     if (valid)
     {
         state.usb = current > usbCurrentThresholdMa || mv >= usbVoltageThresholdMv;
@@ -198,9 +210,8 @@ void setup()
     }
 
     Gui::Status status = {power.percent, power.usb, lastFetchFailed};
-    if (buttonWake)
     {
-        // Show the picture of the outside full screen for a while, then back to the weather.
+        // Show the picture of the outside full screen for a while, then the weather.
         gui.drawScene(cachedWeather);
         gui.fullRefresh();
         delay(sceneSeconds * 1000UL);
